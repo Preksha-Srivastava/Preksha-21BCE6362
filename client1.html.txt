@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(5, 50px);
+            gap: 5px;
+            margin-bottom: 20px;
+        }
+        button {
+            width: 50px;
+            height: 50px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .inactive {
+            background-color: lightgray;
+        }
+        .active {
+            background-color: lightgreen;
+        }
+    </style>
+</head>
+<body>
+    <h2>Turn-Based Game</h2>
+    <div id="status"></div>
+    <div class="grid" id="game-grid"></div>
+    <div id="valid-moves"></div>
+
+    <script>
+        const ws = new WebSocket('ws://localhost:8765');
+        const gameGrid = document.getElementById('game-grid');
+        const validMovesDisplay = document.getElementById('valid-moves');
+        const statusDisplay = document.getElementById('status');
+        let playerId = 'A'; // Change this to 'B' for the second player
+        let gameData = null;
+        let selectedCharacter = null;
+
+        // Setup the game when the WebSocket connection opens
+        ws.onopen = () => {
+            const characters = ['P1', 'P2', 'P3', 'H1', 'H2'];
+            ws.send(JSON.stringify({ type: 'setup', player: playerId, characters: characters }));
+        };
+
+        // Handle incoming messages from the server
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'state') {
+                // Update game state and render the grid
+                gameData = data;
+                renderGrid();
+                updateStatus(`It's ${gameData.turn}'s turn.`);
+            } else if (data.type === 'valid_moves') {
+                displayValidMoves(data.moves);
+            } else if (data.type === 'invalid_move') {
+                updateStatus(data.message);
+            } else if (data.type === 'game_over') {
+                updateStatus(data.message);
+                disableGrid();
+            }
+        };
+
+        // Render the game grid
+        function renderGrid() {
+            gameGrid.innerHTML = '';
+            gameData.board.forEach((row, rowIndex) => {
+                row.forEach((cell, colIndex) => {
+                    const button = document.createElement('button');
+                    button.innerText = cell ? cell : ''; // Show character name only
+                    button.className = cell ? 'active' : 'inactive';
+                    button.onclick = () => handleClick(rowIndex, colIndex, cell);
+                    gameGrid.appendChild(button);
+                });
+            });
+            validMovesDisplay.innerHTML = ''; // Clear previous move options
+        }
+
+        // Handle character selection
+        function handleClick(row, col, cell) {
+            if (!cell || !cell.startsWith(playerId) || gameData.turn !== playerId) return;
+
+            selectedCharacter = cell.split('-')[1];
+            ws.send(JSON.stringify({ type: 'select', player: playerId, row: row, col: col }));
+        }
+
+        // Display valid moves for the selected character
+        function displayValidMoves(moves) {
+            validMovesDisplay.innerHTML = '';
+            moves.forEach(move => {
+                const moveButton = document.createElement('button');
+                moveButton.innerText = move;
+                moveButton.onclick = () => makeMove(move);
+                validMovesDisplay.appendChild(moveButton);
+            });
+        }
+
+        // Make a move based on the selected valid move
+        function makeMove(move) {
+            if (selectedCharacter) {
+                ws.send(JSON.stringify({ type: 'move', player: playerId, character: selectedCharacter, move: move }));
+                selectedCharacter = null; // Reset selection after making a move
+            }
+        }
+
+        // Update the status display
+        function updateStatus(message) {
+            statusDisplay.innerText = message;
+        }
+
+        // Disable the grid after the game is over
+        function disableGrid() {
+            const buttons = gameGrid.getElementsByTagName('button');
+            for (let button of buttons) {
+                button.disabled = true;
+            }
+        }
+    </script>
+</body>
+</html>
